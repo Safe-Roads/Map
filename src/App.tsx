@@ -1,17 +1,26 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
-import MapView from './components/MapView';
-import NavigationPanel from './components/NavigationPanel';
-import PlacesSearch from './components/PlacesSearch';
-import { supabase, Pothole } from './lib/supabase';
-import { Route } from './types';
-import * as L from 'leaflet';
-import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, AlertCircle, Loader2, X, Navigation, Info } from 'lucide-react';
-import { cn } from './lib/utils';
+import React, { useEffect, useState, useCallback, useRef } from "react";
+import MapView from "./components/MapView";
+import NavigationPanel from "./components/NavigationPanel";
+import PlacesSearch from "./components/PlacesSearch";
+import { supabase, Pothole } from "./lib/supabase";
+import { Route } from "./types";
+import * as L from "leaflet";
+import { motion, AnimatePresence } from "motion/react";
+import {
+  MapPin,
+  AlertCircle,
+  Loader2,
+  X,
+  Navigation,
+  Info,
+} from "lucide-react";
+import { cn } from "./lib/utils";
 
 export default function App() {
   const [potholes, setPotholes] = useState<Pothole[]>([]);
-  const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
+  const [userLocation, setUserLocation] = useState<[number, number] | null>(
+    null,
+  );
   const [waypoints, setWaypoints] = useState<[number, number][] | null>(null);
   const [allRoutes, setAllRoutes] = useState<Route[]>([]);
   const [selectedRouteIndex, setSelectedRouteIndex] = useState(0);
@@ -21,11 +30,15 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [mapCenter, setMapCenter] = useState<[number, number]>([18.5204, 73.8567]);
+  const [mapCenter, setMapCenter] = useState<[number, number]>([
+    18.5204, 73.8567,
+  ]);
   const [isTracking, setIsTracking] = useState(false);
-  const [travelMode, setTravelMode] = useState<string>('drive');
+  const [travelMode, setTravelMode] = useState<string>("drive");
   const [isNavigating, setIsNavigating] = useState(false);
-  const [navigationInstructions, setNavigationInstructions] = useState<string[]>([]);
+  const [navigationInstructions, setNavigationInstructions] = useState<
+    string[]
+  >([]);
   const [navigationDistances, setNavigationDistances] = useState<number[]>([]);
   const [currentInstructionIndex, setCurrentInstructionIndex] = useState(0);
   const [userHeading, setUserHeading] = useState<number | null>(null);
@@ -35,6 +48,8 @@ export default function App() {
   const [isOptimizing, setIsOptimizing] = useState(false);
 
   const lastRerouteLocation = useRef<[number, number] | null>(null);
+  const lastPotholeAlertAtRef = useRef(0);
+  const lastAlertedPotholeIdRef = useRef<string | null>(null);
   const apiKey = import.meta.env.VITE_GEOAPIFY_API_KEY;
 
   const [showAbout, setShowAbout] = useState(false);
@@ -42,19 +57,46 @@ export default function App() {
   const fetchPotholes = useCallback(async () => {
     try {
       const { data, error } = await supabase
-        .from('potholes')
-        .select('*')
-        .order('created_at', { ascending: false });
+        .from("potholes")
+        .select("*")
+        .order("created_at", { ascending: false });
 
       if (error) throw error;
       setPotholes(data || []);
     } catch (err: any) {
-      console.error('Error fetching potholes:', err.message);
+      console.error("Error fetching potholes:", err.message);
       if (!import.meta.env.VITE_SUPABASE_URL) {
         setPotholes([
-          { id: '1', latitude: 18.5204, longitude: 73.8567, confidence: 0.85, severity: 4, image_url: 'https://picsum.photos/seed/pothole1/400/300', status: 'detected', created_at: new Date().toISOString() },
-          { id: '2', latitude: 18.5250, longitude: 73.8600, confidence: 0.92, severity: 2, image_url: 'https://picsum.photos/seed/pothole2/400/300', status: 'fixed', created_at: new Date().toISOString() },
-          { id: '3', latitude: 18.5180, longitude: 73.8500, confidence: 0.78, severity: 5, image_url: 'https://picsum.photos/seed/pothole3/400/300', status: 'detected', created_at: new Date().toISOString() }
+          {
+            id: "1",
+            latitude: 18.5204,
+            longitude: 73.8567,
+            confidence: 0.85,
+            severity: 4,
+            image_url: "https://picsum.photos/seed/pothole1/400/300",
+            status: "detected",
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: "2",
+            latitude: 18.525,
+            longitude: 73.86,
+            confidence: 0.92,
+            severity: 2,
+            image_url: "https://picsum.photos/seed/pothole2/400/300",
+            status: "fixed",
+            created_at: new Date().toISOString(),
+          },
+          {
+            id: "3",
+            latitude: 18.518,
+            longitude: 73.85,
+            confidence: 0.78,
+            severity: 5,
+            image_url: "https://picsum.photos/seed/pothole3/400/300",
+            status: "detected",
+            created_at: new Date().toISOString(),
+          },
         ]);
       }
     } finally {
@@ -66,8 +108,8 @@ export default function App() {
     fetchPotholes();
 
     const channel = supabase
-      .channel('potholes_changes')
-      .on('postgres_changes' as any, { event: '*', table: 'potholes' }, () => {
+      .channel("potholes_changes")
+      .on("postgres_changes" as any, { event: "*", table: "potholes" }, () => {
         fetchPotholes();
       })
       .subscribe();
@@ -81,20 +123,20 @@ export default function App() {
   useEffect(() => {
     if (isTracking && userLocation && waypoints && waypoints.length >= 2) {
       const destination = waypoints[waypoints.length - 1];
-      
+
       if (!lastRerouteLocation.current) {
         lastRerouteLocation.current = userLocation;
         return;
       }
 
       const distMoved = Math.sqrt(
-        Math.pow(userLocation[0] - lastRerouteLocation.current[0], 2) + 
-        Math.pow(userLocation[1] - lastRerouteLocation.current[1], 2)
+        Math.pow(userLocation[0] - lastRerouteLocation.current[0], 2) +
+          Math.pow(userLocation[1] - lastRerouteLocation.current[1], 2),
       );
 
       // Roughly 100m in degrees (very approximate)
       if (distMoved > 0.001) {
-        console.log('Significant movement detected, rerouting...');
+        console.log("Significant movement detected, rerouting...");
         setWaypoints([userLocation, destination]);
         lastRerouteLocation.current = userLocation;
       }
@@ -102,8 +144,8 @@ export default function App() {
   }, [userLocation, isTracking, waypoints]);
 
   const handleCurrentLocation = () => {
-    if (!('geolocation' in navigator)) {
-      setError('Geolocation is not supported by your browser.');
+    if (!("geolocation" in navigator)) {
+      setError("Geolocation is not supported by your browser.");
       return;
     }
 
@@ -112,7 +154,9 @@ export default function App() {
     const fetchIPLocation = async () => {
       if (!apiKey) return;
       try {
-        const response = await fetch(`https://api.geoapify.com/v1/ipgeolocation?apiKey=${apiKey}`);
+        const response = await fetch(
+          `https://api.geoapify.com/v1/ipgeolocation?apiKey=${apiKey}`,
+        );
         const data = await response.json();
         if (data.location) {
           const { latitude, longitude } = data.location;
@@ -120,7 +164,7 @@ export default function App() {
           setMapCenter([latitude, longitude]);
         }
       } catch (error) {
-        console.error('IP Geolocation error:', error);
+        console.error("IP Geolocation error:", error);
       }
     };
 
@@ -131,17 +175,17 @@ export default function App() {
         const lon = position.coords.longitude;
         setUserLocation([lat, lon]);
         setMapCenter([lat, lon]);
-        
+
         if (position.coords.heading !== null) {
           setUserHeading(position.coords.heading);
         }
       },
       async (error) => {
-        console.error('Initial location error:', error);
+        console.error("Initial location error:", error);
         // Fallback to IP Geolocation
         await fetchIPLocation();
       },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 },
     );
 
     // Start continuous watching
@@ -150,26 +194,26 @@ export default function App() {
         const lat = position.coords.latitude;
         const lon = position.coords.longitude;
         const heading = position.coords.heading;
-        
+
         if (heading !== null) {
           setUserHeading(heading);
         }
-        
-        setUserLocation(prev => {
+
+        setUserLocation((prev) => {
           if (!prev) return [lat, lon];
           const alpha = 0.3;
           return [
             prev[0] * (1 - alpha) + lat * alpha,
-            prev[1] * (1 - alpha) + lon * alpha
+            prev[1] * (1 - alpha) + lon * alpha,
           ];
         });
-        
+
         setMapCenter([lat, lon]);
       },
       (error) => {
-        console.error('Watch location error:', error);
+        console.error("Watch location error:", error);
       },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 }
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 },
     );
 
     // Listen for orientation
@@ -181,57 +225,78 @@ export default function App() {
       }
     };
 
-    window.addEventListener('deviceorientationabsolute', handleOrientation, true);
+    window.addEventListener(
+      "deviceorientationabsolute",
+      handleOrientation,
+      true,
+    );
   };
 
-  const handleSearch = useCallback(async (source: [number, number], destination: [number, number], mode: string = 'drive', waypointCoords?: [number, number][]) => {
-    setIsSearching(true);
-    setRouteInfo(null);
-    setAllRoutes([]);
-    setSelectedRouteIndex(0);
-    
-    // Construct waypoints array: [source, ...waypoints, destination]
-    const newWaypoints: [number, number][] = [source];
-    if (waypointCoords && waypointCoords.length > 0) {
-      newWaypoints.push(...waypointCoords);
-    }
-    newWaypoints.push(destination);
-    
-    setWaypoints(newWaypoints);
-    setMapCenter(source);
-    setTravelMode(mode);
-    setIsSearching(false);
-  }, []);
+  const handleSearch = useCallback(
+    async (
+      source: [number, number],
+      destination: [number, number],
+      mode: string = "drive",
+      waypointCoords?: [number, number][],
+    ) => {
+      setIsSearching(true);
+      setRouteInfo(null);
+      setAllRoutes([]);
+      setSelectedRouteIndex(0);
 
-  const handlePlaceSelect = useCallback((lat: number, lon: number, name: string) => {
-    if (userLocation) {
-      handleSearch(userLocation, [lat, lon], 'drive');
-    } else {
-      setMapCenter([lat, lon]);
-    }
-  }, [userLocation, handleSearch]);
+      // Construct waypoints array: [source, ...waypoints, destination]
+      const newWaypoints: [number, number][] = [source];
+      if (waypointCoords && waypointCoords.length > 0) {
+        newWaypoints.push(...waypointCoords);
+      }
+      newWaypoints.push(destination);
 
-  const handleRoutesCalculated = useCallback((routes: Route[]) => {
-    setAllRoutes(routes);
-    if (routes.length > 0) {
-      const selected = routes[selectedRouteIndex] || routes[0];
-      setRouteInfo(selected);
-      setNavigationInstructions(selected.instructions);
-      setNavigationDistances(selected.stepDistances);
-      setCurrentInstructionIndex(0);
-    }
-  }, [selectedRouteIndex]);
+      setWaypoints(newWaypoints);
+      setMapCenter(source);
+      setTravelMode(mode);
+      setIsSearching(false);
+    },
+    [],
+  );
 
-  const handleSelectRoute = useCallback((index: number) => {
-    setSelectedRouteIndex(index);
-    if (allRoutes[index]) {
-      const route = allRoutes[index];
-      setRouteInfo(route);
-      setNavigationInstructions(route.instructions);
-      setNavigationDistances(route.stepDistances);
-      setCurrentInstructionIndex(0);
-    }
-  }, [allRoutes]);
+  const handlePlaceSelect = useCallback(
+    (lat: number, lon: number, name: string) => {
+      if (userLocation) {
+        handleSearch(userLocation, [lat, lon], "drive");
+      } else {
+        setMapCenter([lat, lon]);
+      }
+    },
+    [userLocation, handleSearch],
+  );
+
+  const handleRoutesCalculated = useCallback(
+    (routes: Route[]) => {
+      setAllRoutes(routes);
+      if (routes.length > 0) {
+        const selected = routes[selectedRouteIndex] || routes[0];
+        setRouteInfo(selected);
+        setNavigationInstructions(selected.instructions);
+        setNavigationDistances(selected.stepDistances);
+        setCurrentInstructionIndex(0);
+      }
+    },
+    [selectedRouteIndex],
+  );
+
+  const handleSelectRoute = useCallback(
+    (index: number) => {
+      setSelectedRouteIndex(index);
+      if (allRoutes[index]) {
+        const route = allRoutes[index];
+        setRouteInfo(route);
+        setNavigationInstructions(route.instructions);
+        setNavigationDistances(route.stepDistances);
+        setCurrentInstructionIndex(0);
+      }
+    },
+    [allRoutes],
+  );
 
   const handleClearRoute = useCallback(() => {
     setRouteInfo(null);
@@ -241,107 +306,142 @@ export default function App() {
     setIsNavigating(false);
   }, []);
 
-  const fetchIsoline = useCallback(async (minutes: number = 10) => {
-    if (!userLocation || !apiKey) return;
-    setIsFetchingIsoline(true);
-    try {
-      const url = `https://api.geoapify.com/v1/isoline?lat=${userLocation[0]}&lon=${userLocation[1]}&type=time&mode=${travelMode}&range=${minutes * 60}&apiKey=${apiKey}`;
-      const response = await fetch(url);
-      const data = await response.json();
-      if (data.features) {
-        setIsolineData(data.features[0]);
+  const fetchIsoline = useCallback(
+    async (minutes: number = 10) => {
+      if (!userLocation || !apiKey) return;
+      setIsFetchingIsoline(true);
+      try {
+        const url = `https://api.geoapify.com/v1/isoline?lat=${userLocation[0]}&lon=${userLocation[1]}&type=time&mode=${travelMode}&range=${minutes * 60}&apiKey=${apiKey}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.features) {
+          setIsolineData(data.features[0]);
+        }
+      } catch (error) {
+        console.error("Isoline error:", error);
+      } finally {
+        setIsFetchingIsoline(false);
       }
-    } catch (error) {
-      console.error('Isoline error:', error);
-    } finally {
-      setIsFetchingIsoline(false);
-    }
-  }, [userLocation, travelMode, apiKey]);
+    },
+    [userLocation, travelMode, apiKey],
+  );
 
-  const optimizeWaypoints = useCallback(async (source: [number, number], destination: [number, number], waypointCoords: [number, number][]) => {
-    if (!apiKey) return;
-    setIsOptimizing(true);
-    try {
-      // Prepare body for Route Planner API
-      const body = {
-        mode: travelMode,
-        agents: [
+  const optimizeWaypoints = useCallback(
+    async (
+      source: [number, number],
+      destination: [number, number],
+      waypointCoords: [number, number][],
+    ) => {
+      if (!apiKey) return;
+      setIsOptimizing(true);
+      try {
+        // Prepare body for Route Planner API
+        const body = {
+          mode: travelMode,
+          agents: [
+            {
+              start_location: [source[1], source[0]],
+              end_location: [destination[1], destination[0]],
+            },
+          ],
+          shipments: waypointCoords.map((wp, i) => ({
+            id: `wp_${i}`,
+            pickup: {
+              location: [wp[1], wp[0]],
+            },
+          })),
+        };
+
+        const response = await fetch(
+          `https://api.geoapify.com/v1/routeplanner?apiKey=${apiKey}`,
           {
-            start_location: [source[1], source[0]],
-            end_location: [destination[1], destination[0]]
-          }
-        ],
-        shipments: waypointCoords.map((wp, i) => ({
-          id: `wp_${i}`,
-          pickup: {
-            location: [wp[1], wp[0]]
-          }
-        }))
-      };
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          },
+        );
+        const data = await response.json();
 
-      const response = await fetch(`https://api.geoapify.com/v1/routeplanner?apiKey=${apiKey}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      const data = await response.json();
-      
-      if (data.id) {
-        // Poll for result
-        let result = null;
-        let attempts = 0;
-        while (attempts < 10) {
-          await new Promise(r => setTimeout(r, 2000));
-          const pollResponse = await fetch(`https://api.geoapify.com/v1/routeplanner?id=${data.id}&apiKey=${apiKey}`);
-          result = await pollResponse.json();
-          if (result.status === 'succeeded') break;
-          attempts++;
-        }
+        if (data.id) {
+          // Poll for result
+          let result = null;
+          let attempts = 0;
+          while (attempts < 10) {
+            await new Promise((r) => setTimeout(r, 2000));
+            const pollResponse = await fetch(
+              `https://api.geoapify.com/v1/routeplanner?id=${data.id}&apiKey=${apiKey}`,
+            );
+            result = await pollResponse.json();
+            if (result.status === "succeeded") break;
+            attempts++;
+          }
 
-        if (result && result.status === 'succeeded') {
-          const optimizedActions = result.features[0].properties.actions;
-          // Extract optimized waypoint coordinates
-          const optimizedWaypoints: [number, number][] = [];
-          optimizedActions.forEach((action: any) => {
-            if (action.type === 'pickup') {
-              const shipment = result.properties.shipments.find((s: any) => s.id === action.shipment_id);
-              if (shipment) {
-                optimizedWaypoints.push([shipment.pickup.location[1], shipment.pickup.location[0]]);
+          if (result && result.status === "succeeded") {
+            const optimizedActions = result.features[0].properties.actions;
+            // Extract optimized waypoint coordinates
+            const optimizedWaypoints: [number, number][] = [];
+            optimizedActions.forEach((action: any) => {
+              if (action.type === "pickup") {
+                const shipment = result.properties.shipments.find(
+                  (s: any) => s.id === action.shipment_id,
+                );
+                if (shipment) {
+                  optimizedWaypoints.push([
+                    shipment.pickup.location[1],
+                    shipment.pickup.location[0],
+                  ]);
+                }
               }
-            }
-          });
-          
-          handleSearch(source, destination, travelMode, optimizedWaypoints);
-        }
-      }
-    } catch (error) {
-      console.error('Optimization error:', error);
-    } finally {
-      setIsOptimizing(false);
-    }
-  }, [travelMode, apiKey, handleSearch]);
+            });
 
-  const findPostcode = useCallback(async (lat: number, lon: number) => {
-    if (!apiKey) return null;
-    try {
-      const url = `https://api.geoapify.com/v1/geocode/reverse?lat=${lat}&lon=${lon}&type=postcode&apiKey=${apiKey}`;
-      const response = await fetch(url);
-      const data = await response.json();
-      if (data.features && data.features.length > 0) {
-        return data.features[0].properties.postcode;
+            handleSearch(source, destination, travelMode, optimizedWaypoints);
+          }
+        }
+      } catch (error) {
+        console.error("Optimization error:", error);
+      } finally {
+        setIsOptimizing(false);
       }
-    } catch (error) {
-      console.error('Postcode error:', error);
-    }
-    return null;
-  }, [apiKey]);
+    },
+    [travelMode, apiKey, handleSearch],
+  );
+
+  const findPostcode = useCallback(
+    async (lat: number, lon: number) => {
+      if (!apiKey) return null;
+      try {
+        const url = `https://api.geoapify.com/v1/geocode/reverse?lat=${lat}&lon=${lon}&type=postcode&apiKey=${apiKey}`;
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.features && data.features.length > 0) {
+          return data.features[0].properties.postcode;
+        }
+      } catch (error) {
+        console.error("Postcode error:", error);
+      }
+      return null;
+    },
+    [apiKey],
+  );
+
+  const speakText = (text: string) => {
+    if (
+      !text ||
+      typeof window === "undefined" ||
+      !("speechSynthesis" in window)
+    )
+      return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    window.speechSynthesis.speak(utterance);
+  };
+
+  const isTurnInstruction = (instruction: string) => {
+    return /\b(left|right)\b/i.test(instruction);
+  };
 
   const startNavigation = () => {
     if (navigationInstructions.length > 0) {
       setIsNavigating(true);
-      // Voice welcome
-      const utterance = new SpeechSynthesisUtterance("Starting navigation. Follow the highlighted route.");
-      window.speechSynthesis.speak(utterance);
     }
   };
 
@@ -349,49 +449,114 @@ export default function App() {
     if (currentInstructionIndex < navigationInstructions.length - 1) {
       const nextIdx = currentInstructionIndex + 1;
       setCurrentInstructionIndex(nextIdx);
-      // Voice instruction
-      const utterance = new SpeechSynthesisUtterance(navigationInstructions[nextIdx]);
-      window.speechSynthesis.speak(utterance);
+      const instruction = navigationInstructions[nextIdx] || "";
+      if (isTurnInstruction(instruction)) {
+        speakText(instruction);
+      }
     } else {
       setIsNavigating(false);
-      const utterance = new SpeechSynthesisUtterance("You have reached your destination.");
-      window.speechSynthesis.speak(utterance);
+      speakText("You have reached your destination.");
     }
   };
 
+  // Pothole proximity voice alert (speak only when a detected pothole is near the user)
+  useEffect(() => {
+    if (!userLocation) return;
+
+    const detectedPotholes = potholes.filter((p) => p.status === "detected");
+    if (detectedPotholes.length === 0) return;
+
+    const userLatLng = L.latLng(userLocation[0], userLocation[1]);
+
+    let nearest: { id: string; distance: number } | null = null;
+    for (const pothole of detectedPotholes) {
+      const distance = userLatLng.distanceTo(
+        L.latLng(pothole.latitude, pothole.longitude),
+      );
+      if (!nearest || distance < nearest.distance) {
+        nearest = { id: pothole.id, distance };
+      }
+    }
+
+    if (!nearest) return;
+
+    const NEARBY_THRESHOLD_METERS = 35;
+    const RESET_THRESHOLD_METERS = 60;
+    const ALERT_COOLDOWN_MS = 20000;
+    const now = Date.now();
+
+    if (nearest.distance <= NEARBY_THRESHOLD_METERS) {
+      const isNewPothole = lastAlertedPotholeIdRef.current !== nearest.id;
+      const cooldownPassed =
+        now - lastPotholeAlertAtRef.current > ALERT_COOLDOWN_MS;
+
+      if (isNewPothole || cooldownPassed) {
+        speakText(
+          "Pothole detected near your location. Slow down and proceed carefully.",
+        );
+        lastAlertedPotholeIdRef.current = nearest.id;
+        lastPotholeAlertAtRef.current = now;
+      }
+    } else if (
+      nearest.distance > RESET_THRESHOLD_METERS &&
+      lastAlertedPotholeIdRef.current === nearest.id
+    ) {
+      lastAlertedPotholeIdRef.current = null;
+    }
+  }, [userLocation, potholes]);
+
   // Re-routing logic based on deviation
   useEffect(() => {
-    if (!isNavigating || !userLocation || !routeInfo || !waypoints || waypoints.length < 2) return;
+    if (
+      !isNavigating ||
+      !userLocation ||
+      !routeInfo ||
+      !waypoints ||
+      waypoints.length < 2
+    )
+      return;
 
     const userLatLng = L.latLng(userLocation[0], userLocation[1]);
     const polyline = routeInfo.polyline;
-    
+
     // Check distance to the nearest point on the polyline
     // If distance > 100m, trigger re-route
     let minDistance = Infinity;
     for (let i = 0; i < polyline.length; i++) {
-      const dist = userLatLng.distanceTo(L.latLng(polyline[i][0], polyline[i][1]));
+      const dist = userLatLng.distanceTo(
+        L.latLng(polyline[i][0], polyline[i][1]),
+      );
       if (dist < minDistance) minDistance = dist;
     }
 
     if (minDistance > 100) {
       // Debounce re-routing
-      const lastReroute = sessionStorage.getItem('last_reroute_time');
+      const lastReroute = sessionStorage.getItem("last_reroute_time");
       const now = Date.now();
-      if (!lastReroute || now - parseInt(lastReroute) > 10000) { // 10 seconds debounce
-        console.log('Off-track detected, re-routing...');
+      if (!lastReroute || now - parseInt(lastReroute) > 10000) {
+        // 10 seconds debounce
+        console.log("Off-track detected, re-routing...");
         const dest = waypoints[waypoints.length - 1];
         handleSearch(userLocation, dest, travelMode);
-        sessionStorage.setItem('last_reroute_time', now.toString());
+        sessionStorage.setItem("last_reroute_time", now.toString());
       }
     }
-  }, [userLocation, isNavigating, routeInfo, waypoints, travelMode, handleSearch]);
+  }, [
+    userLocation,
+    isNavigating,
+    routeInfo,
+    waypoints,
+    travelMode,
+    handleSearch,
+  ]);
 
   if (isLoading) {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-gray-50">
         <Loader2 className="w-12 h-12 text-blue-600 animate-spin mb-4" />
-        <p className="text-gray-600 font-medium">Initializing Pothole Navigator...</p>
+        <p className="text-gray-600 font-medium">
+          Initializing Pothole Navigator...
+        </p>
       </div>
     );
   }
@@ -400,9 +565,13 @@ export default function App() {
     return (
       <div className="h-full w-full flex flex-col items-center justify-center bg-gray-50 p-8 text-center">
         <MapPin className="w-16 h-16 text-blue-600 mb-6" />
-        <h2 className="text-2xl font-bold text-gray-800 mb-4">Geoapify API Key Required</h2>
+        <h2 className="text-2xl font-bold text-gray-800 mb-4">
+          Geoapify API Key Required
+        </h2>
         <p className="text-gray-600 max-w-md mb-8">
-          To use the full power of Geoapify (Tiles, Routing, and Geocoding), please set your <strong>VITE_GEOAPIFY_API_KEY</strong> in the environment.
+          To use the full power of Geoapify (Tiles, Routing, and Geocoding),
+          please set your <strong>VITE_GEOAPIFY_API_KEY</strong> in the
+          environment.
         </p>
       </div>
     );
@@ -410,8 +579,8 @@ export default function App() {
 
   return (
     <div className="relative h-full w-full overflow-hidden bg-gray-100">
-      <NavigationPanel 
-        onSearch={handleSearch} 
+      <NavigationPanel
+        onSearch={handleSearch}
         onCurrentLocation={handleCurrentLocation}
         isSearching={isSearching}
         routeInfo={routeInfo}
@@ -430,9 +599,9 @@ export default function App() {
         isFetchingIsoline={isFetchingIsoline}
         userLocation={userLocation}
       />
-      
-      <MapView 
-        potholes={potholes} 
+
+      <MapView
+        potholes={potholes}
         userLocation={userLocation}
         waypoints={waypoints}
         allRoutes={allRoutes}
@@ -453,15 +622,12 @@ export default function App() {
         onClearIsoline={() => setIsolineData(null)}
       />
 
-      <PlacesSearch 
-        mapCenter={mapCenter} 
-        onPlaceSelect={handlePlaceSelect} 
-      />
+      <PlacesSearch mapCenter={mapCenter} onPlaceSelect={handlePlaceSelect} />
 
       {/* Navigation Overlay */}
       <AnimatePresence>
         {isNavigating && navigationInstructions.length > 0 && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, y: 100 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 100 }}
@@ -474,14 +640,16 @@ export default function App() {
                 </div>
                 <div>
                   <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">
-                    {navigationDistances[currentInstructionIndex] ? `In ${Math.round(navigationDistances[currentInstructionIndex])}m` : 'Next Step'}
+                    {navigationDistances[currentInstructionIndex]
+                      ? `In ${Math.round(navigationDistances[currentInstructionIndex])}m`
+                      : "Next Step"}
                   </p>
                   <p className="text-lg font-bold text-gray-800 leading-tight">
                     {navigationInstructions[currentInstructionIndex]}
                   </p>
                 </div>
               </div>
-              <button 
+              <button
                 onClick={() => setIsNavigating(false)}
                 className="p-2 hover:bg-gray-100 rounded-full text-gray-400"
               >
@@ -489,11 +657,13 @@ export default function App() {
               </button>
             </div>
             <div className="flex gap-2">
-              <button 
+              <button
                 onClick={nextInstruction}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg transition-all"
               >
-                {currentInstructionIndex < navigationInstructions.length - 1 ? "Next Instruction" : "Finish"}
+                {currentInstructionIndex < navigationInstructions.length - 1
+                  ? "Next Instruction"
+                  : "Finish"}
               </button>
             </div>
           </motion.div>
@@ -518,9 +688,11 @@ export default function App() {
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
-            <span className="text-sm font-black text-gray-900 tracking-tight uppercase">Safe-Roads</span>
+            <span className="text-sm font-black text-gray-900 tracking-tight uppercase">
+              Safe-Roads
+            </span>
           </div>
-          <button 
+          <button
             onClick={() => setShowAbout(true)}
             className="p-1 hover:bg-gray-100 rounded-full text-gray-400 transition-colors"
             title="Project Info"
@@ -529,8 +701,12 @@ export default function App() {
           </button>
         </div>
         <div className="flex flex-col">
-          <p className="text-[10px] font-bold text-gray-500 leading-tight">ML-Based Infrastructure Monitoring</p>
-          <p className="text-[9px] text-gray-400 mt-1 italic">By Om, Varad & Hariom (PCCOE Pune)</p>
+          <p className="text-[10px] font-bold text-gray-500 leading-tight">
+            ML-Based Infrastructure Monitoring
+          </p>
+          <p className="text-[9px] text-gray-400 mt-1 italic">
+            By Om, Varad & Hariom (PCCOE Pune)
+          </p>
         </div>
       </div>
 
@@ -557,18 +733,22 @@ export default function App() {
                     <Navigation className="w-6 h-6" />
                   </div>
                   <div>
-                    <h2 className="text-xl font-black text-gray-900 uppercase tracking-tight">Safe-Roads</h2>
-                    <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">Project Identity & Research</p>
+                    <h2 className="text-xl font-black text-gray-900 uppercase tracking-tight">
+                      Safe-Roads
+                    </h2>
+                    <p className="text-xs font-bold text-blue-600 uppercase tracking-wider">
+                      Project Identity & Research
+                    </p>
                   </div>
                 </div>
-                <button 
+                <button
                   onClick={() => setShowAbout(false)}
                   className="p-2 hover:bg-white rounded-full text-gray-400 shadow-sm transition-all"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              
+
               <div className="p-8 overflow-y-auto custom-scrollbar space-y-8">
                 <section>
                   <h3 className="text-sm font-black text-gray-900 uppercase tracking-widest mb-4 flex items-center gap-2">
@@ -576,18 +756,39 @@ export default function App() {
                     About Us
                   </h3>
                   <p className="text-gray-600 leading-relaxed text-sm">
-                    Safe-Roads is a cutting-edge research initiative dedicated to revolutionizing road infrastructure monitoring through artificial intelligence and computer vision. Developed by <strong>Om Khalane, Varad Pisale, and Hariom Gundale</strong> from <strong>Pimpri Chinchwad College Of Engineering (PCCOE) Pune</strong>.
+                    Safe-Roads is a cutting-edge research initiative dedicated
+                    to revolutionizing road infrastructure monitoring through
+                    artificial intelligence and computer vision. Developed by{" "}
+                    <strong>
+                      Om Khalane, Varad Pisale, and Hariom Gundale
+                    </strong>{" "}
+                    from{" "}
+                    <strong>
+                      Pimpri Chinchwad College Of Engineering (PCCOE) Pune
+                    </strong>
+                    .
                   </p>
                 </section>
 
                 <section className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
-                    <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2">Our Mission</h4>
-                    <p className="text-xs text-gray-600 leading-relaxed">To design, develop, and deploy a high-accuracy pothole detection system using state-of-the-art deep learning techniques.</p>
+                    <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2">
+                      Our Mission
+                    </h4>
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      To design, develop, and deploy a high-accuracy pothole
+                      detection system using state-of-the-art deep learning
+                      techniques.
+                    </p>
                   </div>
                   <div className="bg-gray-50 p-5 rounded-2xl border border-gray-100">
-                    <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2">Our Vision</h4>
-                    <p className="text-xs text-gray-600 leading-relaxed">To extend into a comprehensive, nationwide ML-based road monitoring system, enabling proactive maintenance.</p>
+                    <h4 className="text-xs font-black text-blue-600 uppercase tracking-widest mb-2">
+                      Our Vision
+                    </h4>
+                    <p className="text-xs text-gray-600 leading-relaxed">
+                      To extend into a comprehensive, nationwide ML-based road
+                      monitoring system, enabling proactive maintenance.
+                    </p>
                   </div>
                 </section>
 
@@ -598,14 +799,21 @@ export default function App() {
                   </h3>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                     {[
-                      { label: 'Accuracy', val: '98.0%' },
-                      { label: 'Precision', val: '97.5%' },
-                      { label: 'Recall', val: '98.3%' },
-                      { label: 'F1-Score', val: '97.9%' },
-                    ].map(stat => (
-                      <div key={stat.label} className="text-center p-3 bg-blue-50 rounded-xl border border-blue-100">
-                        <p className="text-[10px] font-bold text-blue-400 uppercase tracking-tighter mb-1">{stat.label}</p>
-                        <p className="text-lg font-black text-blue-700">{stat.val}</p>
+                      { label: "Accuracy", val: "98.0%" },
+                      { label: "Precision", val: "97.5%" },
+                      { label: "Recall", val: "98.3%" },
+                      { label: "F1-Score", val: "97.9%" },
+                    ].map((stat) => (
+                      <div
+                        key={stat.label}
+                        className="text-center p-3 bg-blue-50 rounded-xl border border-blue-100"
+                      >
+                        <p className="text-[10px] font-bold text-blue-400 uppercase tracking-tighter mb-1">
+                          {stat.label}
+                        </p>
+                        <p className="text-lg font-black text-blue-700">
+                          {stat.val}
+                        </p>
                       </div>
                     ))}
                   </div>
@@ -617,8 +825,21 @@ export default function App() {
                     Technical Stack
                   </h3>
                   <div className="flex flex-wrap gap-2">
-                    {['Python', 'TensorFlow', 'Keras', 'OpenCV', 'NumPy', 'Pandas', 'Matplotlib', 'CNN', 'Transfer Learning'].map(tech => (
-                      <span key={tech} className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold uppercase tracking-wider border border-gray-200">
+                    {[
+                      "Python",
+                      "TensorFlow",
+                      "Keras",
+                      "OpenCV",
+                      "NumPy",
+                      "Pandas",
+                      "Matplotlib",
+                      "CNN",
+                      "Transfer Learning",
+                    ].map((tech) => (
+                      <span
+                        key={tech}
+                        className="px-3 py-1 bg-gray-100 text-gray-600 rounded-full text-[10px] font-bold uppercase tracking-wider border border-gray-200"
+                      >
                         {tech}
                       </span>
                     ))}
@@ -629,9 +850,9 @@ export default function App() {
                   <p className="text-[10px] text-gray-400 font-medium italic">
                     © 2026 Safe-Roads Team • PCCOE Pune
                   </p>
-                  <a 
-                    href="https://github.com/Safe-Roads" 
-                    target="_blank" 
+                  <a
+                    href="https://github.com/Safe-Roads"
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="text-[10px] font-black text-blue-600 uppercase tracking-widest hover:underline"
                   >
@@ -662,7 +883,10 @@ export default function App() {
               onClick={(e) => e.stopPropagation()}
             >
               <img
-                src={selectedPothole.image_url || `https://picsum.photos/seed/${selectedPothole.id}/1200/800`}
+                src={
+                  selectedPothole.image_url ||
+                  `https://picsum.photos/seed/${selectedPothole.id}/1200/800`
+                }
                 alt="Pothole Detail"
                 className="w-full h-full object-contain"
                 referrerPolicy="no-referrer"
@@ -672,7 +896,8 @@ export default function App() {
                   <div>
                     <h3 className="text-xl font-bold mb-1">Pothole Hazard</h3>
                     <p className="text-sm opacity-80">
-                      Severity: {selectedPothole.severity} • Confidence: {(selectedPothole.confidence * 100).toFixed(1)}%
+                      Severity: {selectedPothole.severity} • Confidence:{" "}
+                      {(selectedPothole.confidence * 100).toFixed(1)}%
                     </p>
                   </div>
                   <button

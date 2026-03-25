@@ -511,12 +511,14 @@ export default function MapView({
         {/* Source and Destination Markers */}
         {allRoutes[selectedRouteIndex] && (
           <>
-            <Marker 
-              position={allRoutes[selectedRouteIndex].polyline[0]} 
-              icon={sourceIcon(apiKey)}
-            >
-              <Popup>Source</Popup>
-            </Marker>
+            {!isNavigating && (
+              <Marker 
+                position={allRoutes[selectedRouteIndex].polyline[0]} 
+                icon={sourceIcon(apiKey)}
+              >
+                <Popup>Source</Popup>
+              </Marker>
+            )}
             <Marker 
               position={allRoutes[selectedRouteIndex].polyline[allRoutes[selectedRouteIndex].polyline.length - 1]} 
               icon={destinationIcon(apiKey)}
