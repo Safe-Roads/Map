@@ -683,31 +683,16 @@ export default function App() {
         </div>
       )}
 
-      {/* App Branding Overlay */}
-      <div className="absolute bottom-4 left-4 z-10 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-2xl shadow-lg border border-gray-200 flex flex-col gap-1 max-w-[200px]">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 bg-blue-600 rounded-full animate-pulse" />
-            <span className="text-sm font-black text-gray-900 tracking-tight uppercase">
-              Safe-Roads
-            </span>
-          </div>
-          <button
-            onClick={() => setShowAbout(true)}
-            className="p-1 hover:bg-gray-100 rounded-full text-gray-400 transition-colors"
-            title="Project Info"
-          >
-            <Info className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        <div className="flex flex-col">
-          <p className="text-[10px] font-bold text-gray-500 leading-tight">
-            ML-Based Infrastructure Monitoring
-          </p>
-          <p className="text-[9px] text-gray-400 mt-1 italic">
-            By Om, Varad & Hariom (PCCOE Pune)
-          </p>
-        </div>
+      {/* Project Info Trigger */}
+      <div className="absolute bottom-4 left-4 z-10">
+        <button
+          onClick={() => setShowAbout(true)}
+          className="w-11 h-11 rounded-full bg-white/95 backdrop-blur shadow-lg border border-gray-200 text-gray-700 hover:bg-white hover:text-blue-600 transition-all flex items-center justify-center"
+          title="Project Info"
+          aria-label="Open project information"
+        >
+          <Info className="w-5 h-5" />
+        </button>
       </div>
 
       {/* About Modal */}
