@@ -151,6 +151,8 @@ function MapController({
   const currentRotationRef = useRef(0);
   const targetRotationRef = useRef(0);
   const rotationRafRef = useRef<number | null>(null);
+  const lastPanAtRef = useRef(0);
+  const lastPanLocationRef = useRef<[number, number] | null>(null);
 
   const normalizeAngle = (angle: number) => {
     let a = angle % 360;
@@ -185,7 +187,21 @@ function MapController({
           duration: 0.8,
         });
       } else {
-        map.panTo(userLocation, { animate: true, duration: 0.8 });
+        const now = Date.now();
+        const lastLoc = lastPanLocationRef.current;
+        const movedMeters = lastLoc
+          ? L.latLng(lastLoc[0], lastLoc[1]).distanceTo(
+              L.latLng(userLocation[0], userLocation[1]),
+            )
+          : Infinity;
+        const shouldPan = now - lastPanAtRef.current > 220 || movedMeters > 2;
+
+        if (shouldPan) {
+          map.stop();
+          map.panTo(userLocation, { animate: true, duration: 0.45 });
+          lastPanAtRef.current = now;
+          lastPanLocationRef.current = userLocation;
+        }
       }
     } else if (routePolyline && routePolyline.length > 0) {
       const bounds = L.latLngBounds(routePolyline);
@@ -261,12 +277,20 @@ function MapController({
   }, [map, isNavigating, isTracking, userHeading]);
 
   useEffect(() => {
+    // Ensure Leaflet recalculates dimensions once mounted (important on mobile browsers).
+    const t = window.setTimeout(() => {
+      map.invalidateSize({ pan: false });
+    }, 0);
+
     const handleResize = () => {
       map.invalidateSize({ pan: false });
     };
 
     window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener("resize", handleResize);
+    };
   }, [map]);
 
   return null;

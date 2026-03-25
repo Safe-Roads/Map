@@ -50,9 +50,29 @@ export default function App() {
   const lastRerouteLocation = useRef<[number, number] | null>(null);
   const lastPotholeAlertAtRef = useRef(0);
   const lastAlertedPotholeIdRef = useRef<string | null>(null);
+  const watchIdRef = useRef<number | null>(null);
+  const orientationListenerRef = useRef<((event: DeviceOrientationEvent) => void) | null>(null);
   const apiKey = import.meta.env.VITE_GEOAPIFY_API_KEY;
 
   const [showAbout, setShowAbout] = useState(false);
+
+  useEffect(() => {
+    const setAppHeight = () => {
+      document.documentElement.style.setProperty(
+        "--app-height",
+        `${window.innerHeight}px`,
+      );
+    };
+
+    setAppHeight();
+    window.addEventListener("resize", setAppHeight);
+    window.addEventListener("orientationchange", setAppHeight);
+
+    return () => {
+      window.removeEventListener("resize", setAppHeight);
+      window.removeEventListener("orientationchange", setAppHeight);
+    };
+  }, []);
 
   const fetchPotholes = useCallback(async () => {
     try {
@@ -119,6 +139,26 @@ export default function App() {
     };
   }, [fetchPotholes]);
 
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current !== null && "geolocation" in navigator) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+      }
+      if (orientationListenerRef.current) {
+        window.removeEventListener(
+          "deviceorientationabsolute",
+          orientationListenerRef.current,
+          true,
+        );
+        window.removeEventListener(
+          "deviceorientation",
+          orientationListenerRef.current,
+          true,
+        );
+      }
+    };
+  }, []);
+
   // Rerouting logic: if tracking is on and we have a destination, reroute if user moves > 100m
   useEffect(() => {
     if (isTracking && userLocation && waypoints && waypoints.length >= 2) {
@@ -143,13 +183,18 @@ export default function App() {
     }
   }, [userLocation, isTracking, waypoints]);
 
-  const handleCurrentLocation = () => {
+  const handleCurrentLocation = async () => {
     if (!("geolocation" in navigator)) {
       setError("Geolocation is not supported by your browser.");
       return;
     }
 
+    setError(null);
     setIsTracking(true);
+
+    if (!window.isSecureContext) {
+      setError("Location requires HTTPS (or localhost) on mobile browsers.");
+    }
 
     const fetchIPLocation = async () => {
       if (!apiKey) return;
@@ -162,74 +207,122 @@ export default function App() {
           const { latitude, longitude } = data.location;
           setUserLocation([latitude, longitude]);
           setMapCenter([latitude, longitude]);
+          setError("Using approximate location from network.");
         }
       } catch (error) {
         console.error("IP Geolocation error:", error);
       }
     };
 
-    // Immediate fetch for instant feedback
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        setUserLocation([lat, lon]);
-        setMapCenter([lat, lon]);
+    const applyPosition = (position: GeolocationPosition, smooth = true) => {
+      const lat = position.coords.latitude;
+      const lon = position.coords.longitude;
+      const heading = position.coords.heading;
 
-        if (position.coords.heading !== null) {
-          setUserHeading(position.coords.heading);
-        }
+      if (Number.isFinite(heading as number)) {
+        setUserHeading(heading as number);
+      }
+
+      setUserLocation((prev) => {
+        if (!prev || !smooth) return [lat, lon];
+        const alpha = 0.3;
+        return [
+          prev[0] * (1 - alpha) + lat * alpha,
+          prev[1] * (1 - alpha) + lon * alpha,
+        ];
+      });
+
+      setMapCenter([lat, lon]);
+      setError(null);
+    };
+
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
+
+    try {
+      const initialPosition = await new Promise<GeolocationPosition>(
+        (resolve, reject) => {
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 10000,
+          });
+        },
+      );
+
+      applyPosition(initialPosition, false);
+    } catch (err: any) {
+      console.error("Initial location error:", err);
+      if (err?.code === 1) {
+        setError("Location permission denied. Enable it in browser settings.");
+      } else if (err?.code === 2) {
+        setError("Location unavailable. Retrying with network location.");
+      } else if (err?.code === 3) {
+        setError("Location request timed out. Retrying with network location.");
+      } else {
+        setError("Unable to fetch current location.");
+      }
+      await fetchIPLocation();
+    }
+
+    watchIdRef.current = navigator.geolocation.watchPosition(
+      (position) => {
+        applyPosition(position, true);
       },
-      async (error) => {
-        console.error("Initial location error:", error);
-        // Fallback to IP Geolocation
+      async (watchError) => {
+        console.error("Watch location error:", watchError);
+        if ((watchError as GeolocationPositionError).code === 1) {
+          setError("Location updates are blocked by browser permissions.");
+          return;
+        }
         await fetchIPLocation();
       },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 },
+      { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
     );
 
-    // Start continuous watching
-    navigator.geolocation.watchPosition(
-      (position) => {
-        const lat = position.coords.latitude;
-        const lon = position.coords.longitude;
-        const heading = position.coords.heading;
-
-        if (heading !== null) {
-          setUserHeading(heading);
+    const maybeRequestOrientationPermission =
+      (window as any).DeviceOrientationEvent?.requestPermission;
+    if (typeof maybeRequestOrientationPermission === "function") {
+      try {
+        const permission = await maybeRequestOrientationPermission();
+        if (permission !== "granted") {
+          return;
         }
+      } catch {
+        return;
+      }
+    }
 
-        setUserLocation((prev) => {
-          if (!prev) return [lat, lon];
-          const alpha = 0.3;
-          return [
-            prev[0] * (1 - alpha) + lat * alpha,
-            prev[1] * (1 - alpha) + lon * alpha,
-          ];
-        });
+    if (orientationListenerRef.current) {
+      window.removeEventListener(
+        "deviceorientationabsolute",
+        orientationListenerRef.current,
+        true,
+      );
+      window.removeEventListener(
+        "deviceorientation",
+        orientationListenerRef.current,
+        true,
+      );
+    }
 
-        setMapCenter([lat, lon]);
-      },
-      (error) => {
-        console.error("Watch location error:", error);
-      },
-      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 },
-    );
-
-    // Listen for orientation
-    const handleOrientation = (event: any) => {
-      if (event.webkitCompassHeading) {
-        setUserHeading(event.webkitCompassHeading);
-      } else if (event.alpha !== null) {
+    const handleOrientation = (event: DeviceOrientationEvent) => {
+      const webkitHeading = (event as any).webkitCompassHeading;
+      if (Number.isFinite(webkitHeading)) {
+        setUserHeading(webkitHeading);
+        return;
+      }
+      if (event.alpha !== null) {
         setUserHeading(360 - event.alpha);
       }
     };
 
-    window.addEventListener(
-      "deviceorientationabsolute",
-      handleOrientation,
-      true,
-    );
+    orientationListenerRef.current = handleOrientation;
+
+    window.addEventListener("deviceorientationabsolute", handleOrientation, true);
+    window.addEventListener("deviceorientation", handleOrientation, true);
   };
 
   const handleSearch = useCallback(
@@ -578,7 +671,7 @@ export default function App() {
   }
 
   return (
-    <div className="relative h-dvh min-h-svh w-full overflow-hidden bg-gray-100">
+    <div className="app-shell relative w-full overflow-hidden bg-gray-100">
       <NavigationPanel
         onSearch={handleSearch}
         onCurrentLocation={handleCurrentLocation}
@@ -599,6 +692,32 @@ export default function App() {
         isFetchingIsoline={isFetchingIsoline}
         userLocation={userLocation}
       />
+
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ opacity: 0, y: -16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -16 }}
+            className="absolute top-4 left-1/2 -translate-x-1/2 z-50 w-[92%] max-w-md bg-white/95 backdrop-blur border border-red-200 rounded-xl shadow-lg p-3"
+          >
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 text-red-500 mt-0.5 shrink-0" />
+              <p className="text-xs text-gray-700 leading-relaxed flex-1">
+                {error}
+              </p>
+              <button
+                onClick={() => setError(null)}
+                className="text-gray-400 hover:text-gray-600"
+                title="Dismiss message"
+                aria-label="Dismiss location message"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <MapView
         potholes={potholes}
