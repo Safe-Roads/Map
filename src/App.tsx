@@ -578,7 +578,7 @@ export default function App() {
   }
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-gray-100">
+    <div className="relative h-dvh min-h-svh w-full overflow-hidden bg-gray-100">
       <NavigationPanel
         onSearch={handleSearch}
         onCurrentLocation={handleCurrentLocation}

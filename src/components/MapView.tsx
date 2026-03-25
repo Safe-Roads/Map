@@ -148,40 +148,126 @@ function MapController({
   isTracking: boolean;
 }) {
   const map = useMap();
+  const currentRotationRef = useRef(0);
+  const targetRotationRef = useRef(0);
+  const rotationRafRef = useRef<number | null>(null);
+
+  const normalizeAngle = (angle: number) => {
+    let a = angle % 360;
+    if (a < 0) a += 360;
+    return a;
+  };
+
+  const shortestAngleDelta = (from: number, to: number) => {
+    let delta = ((to - from + 540) % 360) - 180;
+    if (delta < -180) delta += 360;
+    return delta;
+  };
+
+  const applyMapRotation = (angleDeg: number) => {
+    const mapPane = map.getPane("mapPane");
+    if (!mapPane) return;
+
+    // Scale slightly while rotating so the viewport never exposes clipped corners.
+    mapPane.style.transformOrigin = "50% 50%";
+    mapPane.style.willChange = "transform";
+    mapPane.style.transition = "none";
+    mapPane.style.transform = `translate3d(0,0,0) rotate(${angleDeg}deg) scale(1.5)`;
+  };
 
   useEffect(() => {
     if ((isNavigating || isTracking) && userLocation) {
-      // Zoom in very much (e.g. 19 or 20)
       const zoomLevel = isNavigating ? 18 : 19;
-      map.setView(userLocation, zoomLevel, { animate: true });
 
-      // Auto-rotate map based on heading
-      if (userHeading !== null) {
-        const mapContainer = map.getContainer();
-        mapContainer.style.transform = `rotate(${-userHeading}deg)`;
-        mapContainer.style.transition = "transform 0.5s ease";
+      if (map.getZoom() !== zoomLevel) {
+        map.setView(userLocation, zoomLevel, {
+          animate: true,
+          duration: 0.8,
+        });
+      } else {
+        map.panTo(userLocation, { animate: true, duration: 0.8 });
       }
     } else if (routePolyline && routePolyline.length > 0) {
       const bounds = L.latLngBounds(routePolyline);
       map.fitBounds(bounds, { padding: [50, 50] });
-      // Reset rotation
-      const mapContainer = map.getContainer();
-      mapContainer.style.transform = "none";
+
+      targetRotationRef.current = 0;
+      currentRotationRef.current = 0;
+      const mapPane = map.getPane("mapPane");
+      if (mapPane) {
+        mapPane.style.transform = "none";
+      }
     } else if (center) {
       map.panTo(center);
-      // Reset rotation
-      const mapContainer = map.getContainer();
-      mapContainer.style.transform = "none";
+
+      targetRotationRef.current = 0;
+      currentRotationRef.current = 0;
+      const mapPane = map.getPane("mapPane");
+      if (mapPane) {
+        mapPane.style.transform = "none";
+      }
     }
-  }, [
-    center,
-    routePolyline,
-    map,
-    isNavigating,
-    userLocation,
-    userHeading,
-    isTracking,
-  ]);
+  }, [center, routePolyline, map, isNavigating, userLocation, isTracking]);
+
+  useEffect(() => {
+    const shouldRotate = (isNavigating || isTracking) && userHeading !== null;
+
+    if (!shouldRotate) {
+      if (rotationRafRef.current) {
+        cancelAnimationFrame(rotationRafRef.current);
+        rotationRafRef.current = null;
+      }
+
+      targetRotationRef.current = 0;
+      currentRotationRef.current = 0;
+      const mapPane = map.getPane("mapPane");
+      if (mapPane) {
+        mapPane.style.transform = "none";
+      }
+      return;
+    }
+
+    targetRotationRef.current = normalizeAngle(-(userHeading ?? 0));
+
+    if (rotationRafRef.current) return;
+
+    const step = () => {
+      const current = currentRotationRef.current;
+      const target = targetRotationRef.current;
+      const delta = shortestAngleDelta(current, target);
+
+      // Exponential smoothing for natural rotation motion.
+      const next = normalizeAngle(current + delta * 0.18);
+      currentRotationRef.current = next;
+      applyMapRotation(next);
+
+      if (Math.abs(delta) > 0.2) {
+        rotationRafRef.current = requestAnimationFrame(step);
+      } else {
+        currentRotationRef.current = target;
+        applyMapRotation(target);
+        rotationRafRef.current = null;
+      }
+    };
+
+    rotationRafRef.current = requestAnimationFrame(step);
+
+    return () => {
+      if (rotationRafRef.current) {
+        cancelAnimationFrame(rotationRafRef.current);
+        rotationRafRef.current = null;
+      }
+    };
+  }, [map, isNavigating, isTracking, userHeading]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      map.invalidateSize({ pan: false });
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [map]);
 
   return null;
 }
