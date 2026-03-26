@@ -4,7 +4,7 @@
 ### ML-Inspired Road Infrastructure Monitoring • Smart Navigation • Pothole Awareness
 
 <a href="https://map-tau-taupe.vercel.app/" target="_blank" rel="noopener noreferrer">
-  <img src="./assests/image.png" alt="Safe-Roads Map — Website Screenshot" width="920" />
+  <img src="./assets/image.png" alt="Safe-Roads Map — Website Screenshot" width="920" />
 </a>
 
 <p>
