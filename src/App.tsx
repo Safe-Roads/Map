@@ -51,7 +51,9 @@ export default function App() {
   const lastPotholeAlertAtRef = useRef(0);
   const lastAlertedPotholeIdRef = useRef<string | null>(null);
   const watchIdRef = useRef<number | null>(null);
-  const orientationListenerRef = useRef<((event: DeviceOrientationEvent) => void) | null>(null);
+  const orientationListenerRef = useRef<
+    ((event: DeviceOrientationEvent) => void) | null
+  >(null);
   const apiKey = import.meta.env.VITE_GEOAPIFY_API_KEY;
 
   const [showAbout, setShowAbout] = useState(false);
@@ -282,8 +284,8 @@ export default function App() {
       { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 },
     );
 
-    const maybeRequestOrientationPermission =
-      (window as any).DeviceOrientationEvent?.requestPermission;
+    const maybeRequestOrientationPermission = (window as any)
+      .DeviceOrientationEvent?.requestPermission;
     if (typeof maybeRequestOrientationPermission === "function") {
       try {
         const permission = await maybeRequestOrientationPermission();
@@ -321,7 +323,11 @@ export default function App() {
 
     orientationListenerRef.current = handleOrientation;
 
-    window.addEventListener("deviceorientationabsolute", handleOrientation, true);
+    window.addEventListener(
+      "deviceorientationabsolute",
+      handleOrientation,
+      true,
+    );
     window.addEventListener("deviceorientation", handleOrientation, true);
   };
 
